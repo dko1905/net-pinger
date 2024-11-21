@@ -1,0 +1,11 @@
+[*.nix]
+indent_size = 2
+indent_style = space
+
+[go.mod,go.sum,*.go]
+indent_size = 2
+indent_style = tab
+
+[*.{html,css,js}]
+indent_size = 2
+indent_style = space
