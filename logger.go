@@ -5,6 +5,9 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"time"
+
+	"github.com/lmittmann/tint"
 )
 
 type ctxKey string
@@ -28,8 +31,9 @@ func newLogger(appEnv string) *slog.Logger {
 			Level: slog.LevelInfo,
 		})
 	} else {
-		handler = slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-			Level: slog.LevelDebug,
+		handler = tint.NewHandler(os.Stdout, &tint.Options{
+			Level:      slog.LevelDebug,
+			TimeFormat: time.Kitchen,
 		})
 	}
 
