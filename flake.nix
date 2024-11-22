@@ -1,5 +1,4 @@
 {
-  # ...
   inputs = {
     flake-parts.url = "github:hercules-ci/flake-parts";
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -12,11 +11,25 @@
     ];
 
     perSystem = {pkgs, system, ...}: {
-      # packages.default = pkgs.callPackage ./package.nix {};
+      packages.default = pkgs.pkgsMusl.buildGoModule {
+        pname = "net-pinger";
+        version = "0.0.1";
+
+        CGO_ENABLED = 1;
+        vendorHash = "sha256-ZFMFJqxK+Z6twsmb0otXHDHE/Yy/j6XhyFkQz7NJxak=";
+        proxyVendor = true;
+
+        ldflags = [
+          "-linkmode external"
+          "-extldflags '-static'"
+        ];
+
+        src = ./.;
+      };
 
       devShells.default = pkgs.mkShell {
         buildInputs = with pkgs;
-          [ go gopls delve go-tools go-migrate ];
+          [ go gopls delve go-tools go-migrate sqlc ];
       };
     };
   };

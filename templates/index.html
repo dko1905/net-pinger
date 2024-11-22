@@ -57,38 +57,38 @@
         <button class="btn btn-primary">Reload</button>
       </a>
       <div>
-        <p>
-          Last failed ping:
-          {{ if .LastRecord }} <span>{{ .LastRecord.TS }}</span> {{ else }}
-          <span>Unknown</span> {{ end }}
-        </p>
-      <table id="records_table" class="display" style="width: 100%">
-        <thead>
-          <tr>
-            <th>Time</th>
-            <th>Failure</th>
-            <th>Description</th>
-          </tr>
-        </thead>
-        <tbody>
-          {{ range .Records }}
-          <tr>
-            <td title="{{ .ID }}">{{ .TS }}</td>
-            <td>
-              {{ if .Failure }}
-              <span class="text-danger">Fail</span>
-              {{ else }}
-              <span class="text-success">Pass</span>
-              {{ end }}
-            </td>
-            <td>{{ .Description }}</td>
-          </tr>
-          {{ end }}
-        </tbody>
-      </table>
-      <script>
-        new DataTable("#records_table");
-      </script>
+        <span>Last failed ping:</span> <br>
+        <pre>
+          {{ .LastFailed }}
+        </pre>
+
+        <table id="records_table" class="display" style="width: 100%">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Failure</th>
+              <th>Description</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{ range .Records }}
+            <tr>
+              <td title="{{ .ID }}">{{ .Ts }}</td>
+              <td>
+                {{ if .Failure }}
+                <span class="text-danger">Fail</span>
+                {{ else }}
+                <span class="text-success">Pass</span>
+                {{ end }}
+              </td>
+              <td>{{ .Description }}</td>
+            </tr>
+            {{ end }}
+          </tbody>
+        </table>
+        <script>
+          new DataTable("#records_table");
+        </script>
       </div>
     </main>
   </body>

@@ -1,3 +1,6 @@
 /.dev.env
 /app.db
 /.env
+/vendor
+/net-pinger
+/result

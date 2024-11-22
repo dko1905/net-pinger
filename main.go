@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
 	"log/slog"
+	"net-pinger/db"
 	"net/http"
 	"os"
 	"reflect"
@@ -22,12 +25,6 @@ import (
 	slogchi "github.com/samber/slog-chi"
 
 	_ "github.com/mattn/go-sqlite3"
-)
-
-const (
-	SQL_INSERT_RECORD             = "INSERT INTO records (id, ts, failure, description) VALUES (?, ?, ?, ?);"
-	SQL_SELECT_ALL_RECORDS        = "SELECT id, ts, failure, description FROM records;"
-	SQL_SELECT_LAST_FAILED_RECORD = "SELECT id, ts, failure, description FROM records LIMIT 1;"
 )
 
 //go:embed templates
@@ -59,7 +56,7 @@ func main() {
 		appAddr = ":3000"
 	}
 
-	appDb, found := os.LookupEnv("APP_DB")
+	appDB, found := os.LookupEnv("APP_DB")
 	if !found {
 		panic(errors.New("APP_DB undefined"))
 	}
@@ -68,18 +65,18 @@ func main() {
 	logger := newLogger(appEnv)
 
 	// Database
-	db, err := sql.Open("sqlite3", appDb)
+	sqliteDB, err := sql.Open("sqlite3", appDB)
 	if err != nil {
 		panic(err)
 	}
-	defer db.Close()
+	defer sqliteDB.Close()
 
-	_, err = db.Exec("PRAGMA foreign_keys = ON;")
+	_, err = sqliteDB.Exec("PRAGMA foreign_keys = ON;")
 	if err != nil {
 		panic(err)
 	}
 
-	dbDriver, err := sqlite3.WithInstance(db, &sqlite3.Config{})
+	dbDriver, err := sqlite3.WithInstance(sqliteDB, &sqlite3.Config{})
 	if err != nil {
 		panic(err)
 	}
@@ -102,6 +99,8 @@ func main() {
 		panic(err)
 	}
 
+	queries := db.New(sqliteDB)
+
 	// Chi
 	r := chi.NewRouter()
 
@@ -122,17 +121,6 @@ func main() {
 	go func() {
 		appInterval := 1 * time.Second
 
-		saveRecord := func(ok bool, msg string) {
-			q, err := db.Prepare(SQL_INSERT_RECORD)
-			if err != nil {
-				panic(err)
-			}
-
-			record_id := uuid.New()
-			record_ts := time.Now().UTC().Format(time.RFC3339)
-			q.Exec(record_id, record_ts, ok, msg)
-		}
-
 		prevFailure := false // `Failure` of previous record
 		client := http.Client{
 			Timeout: 5 * time.Second,
@@ -145,21 +133,40 @@ func main() {
 				msg := fmt.Sprintf("failed to reach Google: %v", err)
 
 				logger.Debug(msg)
-				prevFailure = true
-				saveRecord(true, msg)
+				if !prevFailure {
+					queries.CreateRecord(context.Background(), db.CreateRecordParams{
+						ID:          uuid.NewString(),
+						Ts:          time.Now().UTC().Format(time.RFC3339),
+						Failure:     1,
+						Description: msg,
+					})
+					prevFailure = true
+				}
 			} else if resp.StatusCode != http.StatusNoContent {
 				// Failed, wrong response code
 				msg := fmt.Sprintf("wrong status code returned from Google: %s", resp.Status)
 
 				logger.Debug(msg)
-				prevFailure = true
-				saveRecord(true, msg)
+				if !prevFailure {
+					prevFailure = true
+					queries.CreateRecord(context.Background(), db.CreateRecordParams{
+						ID:          uuid.NewString(),
+						Ts:          time.Now().UTC().Format(time.RFC3339),
+						Failure:     1,
+						Description: msg,
+					})
+				}
 			} else {
 				msg := fmt.Sprintf("successfully reached Google: %s", resp.Status)
 
 				// Success
 				if prevFailure {
-					saveRecord(false, msg)
+					queries.CreateRecord(context.Background(), db.CreateRecordParams{
+						ID:          uuid.NewString(),
+						Ts:          time.Now().UTC().Format(time.RFC3339),
+						Failure:     0,
+						Description: msg,
+					})
 					prevFailure = false
 				}
 			}
@@ -171,42 +178,32 @@ func main() {
 	// Routes
 	// -Views
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-		q, err := db.Prepare(SQL_SELECT_ALL_RECORDS)
+		records, err := queries.GetRecords(r.Context())
 		if err != nil {
 			panic(err)
 		}
 
-		rows, err := q.Query()
-		if err != nil {
+		var lastFailureStr string
+		lastFailure, err := queries.GetRecordByLastFailure(r.Context())
+		if errors.Is(err, sql.ErrNoRows) {
+			lastFailureStr = "No last error"
+		} else if err != nil {
 			panic(err)
-		}
-
-		viewData := struct {
-			LastRecord *Record
-			Records    []Record
-		}{}
-
-		for rows.Next() {
-			var record Record
-			var record_ts string
-			if err := rows.Scan(&record.ID, &record_ts, &record.Failure, &record.Description); err != nil {
-				panic(err)
-			}
-			record.TS, err = time.Parse(time.RFC3339, record_ts)
+		} else {
+			lastFailureStr2, err := json.Marshal(lastFailure)
 			if err != nil {
 				panic(err)
 			}
-			viewData.Records = append(viewData.Records, record)
+			lastFailureStr = string(lastFailureStr2)
 		}
 
-		if len(viewData.Records) > 1 {
-			viewData.LastRecord = &(viewData.Records[len(viewData.Records)-1])
+		viewData := struct {
+			LastFailed string
+			Records    []db.Record
+		}{
+			Records:    records,
+			LastFailed: lastFailureStr,
 		}
-
-		if err := rows.Err(); err != nil {
-			panic(err)
-		}
-
 		err = tmpl.Execute(w, viewData)
 		if err != nil {
 			panic(err)
